@@ -1,5 +1,8 @@
-import Landing from "@/components/Landing";
+import UnifiedPage from "@/components/UnifiedPage";
 
-export default function Page() {
-  return <Landing />;
+
+export default function Page1() {
+  return <UnifiedPage />;
 }
+
+

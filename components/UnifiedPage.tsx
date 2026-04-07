@@ -6,9 +6,12 @@ import {
   ArrowRight,
   ArrowUp,
   CheckCircle2,
+  Copy,
+  Download,
   FileText,
   Layers3,
   LayoutTemplate,
+  LoaderCircle,
   Sparkles,
   Upload,
   Users,
@@ -36,17 +39,43 @@ const outputs = [
   {
     title: "Jira",
     description: "Actionable user stories with acceptance criteria, ready for engineering delivery.",
-    sample: `Title:\nLogin with email\n\nAs a returning user\nI want to sign in with my email and password\nSo that I can access my workspace\n\nAcceptance Criteria:\n- Given a registered user When valid credentials are submitted Then the user is signed in\n- Given invalid credentials When sign in is attempted Then an error message is shown`
+    sample: `Title:
+Login with email
+
+As a returning user
+I want to sign in with my email and password
+So that I can access my workspace
+
+Acceptance Criteria:
+- Given a registered user When valid credentials are submitted Then the user is signed in
+- Given invalid credentials When sign in is attempted Then an error message is shown`
   },
   {
     title: "Notion",
     description: "Polished product requirements that PMs, designers, and stakeholders can align around.",
-    sample: `Overview\nThe flow supports authenticated sign-in for returning users.\n\nGoals\n- Reduce friction at entry\n- Make account access clear and fast\n\nUser flow\nThe user lands on sign in, enters credentials, submits, and is routed to the workspace.`
+    sample: `Overview
+The flow supports authenticated sign-in for returning users.
+
+Goals
+- Reduce friction at entry
+- Make account access clear and fast
+
+User flow
+The user lands on sign in, enters credentials, submits, and is routed to the workspace.`
   },
   {
     title: "Confluence",
     description: "Structured functional specs with flows, requirements, and implementation clarity.",
-    sample: `Summary\nThis feature enables returning users to access the platform through a standard sign-in flow.\n\nScope\n- Email and password authentication\n- Validation states\n- Error handling\n\nAcceptance criteria\n- Successful sign in routes user to dashboard`
+    sample: `Summary
+This feature enables returning users to access the platform through a standard sign-in flow.
+
+Scope
+- Email and password authentication
+- Validation states
+- Error handling
+
+Acceptance criteria
+- Successful sign in routes user to dashboard`
   }
 ];
 
@@ -75,9 +104,10 @@ const audience = [
   }
 ];
 
-export default function SnapSpecUnifiedPage() {
+export default function UnifiedPage() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const generatorRef = useRef<HTMLElement | null>(null);
+
   const [items, setItems] = useState<UploadItem[]>([]);
   const [dragActive, setDragActive] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -89,6 +119,12 @@ export default function SnapSpecUnifiedPage() {
     confluence: ""
   });
   const [error, setError] = useState("");
+  const [copiedTab, setCopiedTab] = useState<OutputTab | null>(null);
+  const [generatedAt, setGeneratedAt] = useState<Record<OutputTab, string | null>>({
+    jira: null,
+    notion: null,
+    confluence: null
+  });
 
   const hasOutput = useMemo(() => {
     return Boolean(output.jira || output.notion || output.confluence);
@@ -104,9 +140,93 @@ export default function SnapSpecUnifiedPage() {
     generatorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  function formatTimestamp(date = new Date()) {
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const yyyy = String(date.getFullYear());
+    const hh = String(date.getHours()).padStart(2, "0");
+    const ss = String(date.getSeconds()).padStart(2, "0");
+    return `${mm}-${dd}-${yyyy}<${hh}:${ss}>`;
+  }
+
+  function countWords(value: string) {
+    return value.trim() ? value.trim().split(/\s+/).length : 0;
+  }
+
   function resetOutput() {
     setOutput({ jira: "", notion: "", confluence: "" });
     setError("");
+    setCopiedTab(null);
+    setGeneratedAt({ jira: null, notion: null, confluence: null });
+  }
+
+  async function copyTabContent(tab: OutputTab) {
+    const value = output[tab];
+    if (!value) return;
+
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedTab(tab);
+      window.setTimeout(() => {
+        setCopiedTab((current) => (current === tab ? null : current));
+      }, 1500);
+    } catch {
+      setError("Unable to copy content.");
+    }
+  }
+
+  function downloadTabContent(tab: OutputTab) {
+    const value = output[tab];
+    if (!value) return;
+
+    const timestamp = generatedAt[tab] || formatTimestamp();
+    const wordCount = countWords(value);
+
+    const content = [
+      `Tab: ${tab}`,
+      `Timestamp: ${timestamp}`,
+      `Word Count: ${wordCount}`,
+      "",
+      value
+    ].join("\n");
+
+    const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `snapspec-${tab}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function downloadAllOutputs() {
+    const sections = tabOrder
+      .map((tab) => {
+        const value = output[tab] || "No content generated.";
+        const timestamp = generatedAt[tab] || "Not generated";
+        const wordCount = countWords(output[tab] || "");
+
+        return [
+          tab.toUpperCase(),
+          `Timestamp: ${timestamp}`,
+          `Word Count: ${wordCount}`,
+          "",
+          value
+        ].join("\n");
+      })
+      .join("\n\n--------------------------------------------------\n\n");
+
+    const blob = new Blob([sections], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "snapspec-all-outputs.txt";
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   }
 
   function createUploadItems(files: File[]) {
@@ -201,11 +321,20 @@ export default function SnapSpecUnifiedPage() {
       } else {
         const data = (await response.json()) as GenerateResponse;
         if (data.error) throw new Error(data.error);
+
         setOutput({
           jira: data.jira || "",
           notion: data.notion || "",
           confluence: data.confluence || ""
         });
+
+        const timestamp = formatTimestamp();
+        setGeneratedAt({
+          jira: data.jira ? timestamp : null,
+          notion: data.notion ? timestamp : null,
+          confluence: data.confluence ? timestamp : null
+        });
+
         setStatusText("Done");
       }
     } catch (err) {
@@ -262,15 +391,30 @@ export default function SnapSpecUnifiedPage() {
               ...prev,
               [event.tab]: prev[event.tab] + event.content
             }));
+
+            setGeneratedAt((prev) => ({
+              ...prev,
+              [event.tab]: prev[event.tab] || formatTimestamp()
+            }));
+
             continue;
           }
 
           if (event.type === "result") {
+            const timestamp = formatTimestamp();
+
             setOutput({
               jira: event.jira || "",
               notion: event.notion || "",
               confluence: event.confluence || ""
             });
+
+            setGeneratedAt((prev) => ({
+              jira: event.jira ? timestamp : prev.jira,
+              notion: event.notion ? timestamp : prev.notion,
+              confluence: event.confluence ? timestamp : prev.confluence
+            }));
+
             setStatusText("Done");
           }
         } catch {
@@ -288,11 +432,13 @@ export default function SnapSpecUnifiedPage() {
             <Sparkles className="h-4 w-4" />
             SnapSpec
           </div>
+
           <div className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
             <a href="#how-it-works" className="hover:text-zinc-900">How it works</a>
             <a href="#outputs" className="hover:text-zinc-900">Outputs</a>
             <a href="#generator" className="hover:text-zinc-900">Generator</a>
           </div>
+
           <button
             onClick={scrollToGenerator}
             className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
@@ -329,6 +475,7 @@ export default function SnapSpecUnifiedPage() {
               Generate Specs
               <ArrowRight className="h-4 w-4" />
             </button>
+
             <a
               href="#outputs"
               className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
@@ -339,7 +486,10 @@ export default function SnapSpecUnifiedPage() {
 
           <div className="mt-10 grid gap-3 sm:grid-cols-2">
             {valueProps.map((item) => (
-              <div key={item} className="flex items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-sm text-zinc-700">
+              <div
+                key={item}
+                className="flex items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-sm text-zinc-700"
+              >
                 <CheckCircle2 className="h-4 w-4 shrink-0 text-zinc-900" />
                 {item}
               </div>
@@ -379,13 +529,17 @@ export default function SnapSpecUnifiedPage() {
               <Layers3 className="h-4 w-4" />
               Generated output preview
             </div>
+
             <div className="mb-4 flex gap-2 rounded-2xl bg-zinc-100 p-1 text-sm">
               <div className="rounded-xl bg-white px-4 py-2 font-medium text-zinc-900 shadow-sm">Jira</div>
               <div className="rounded-xl px-4 py-2 text-zinc-500">Notion</div>
               <div className="rounded-xl px-4 py-2 text-zinc-500">Confluence</div>
             </div>
+
             <div className="rounded-2xl bg-zinc-50 p-4">
-              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">{outputs[0].sample}</pre>
+              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">
+                {outputs[0].sample}
+              </pre>
             </div>
           </div>
         </div>
@@ -410,7 +564,10 @@ export default function SnapSpecUnifiedPage() {
               "Vague specs that slow delivery",
               "Manual rewriting across tools"
             ].map((item) => (
-              <div key={item} className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm leading-7 text-zinc-600 shadow-sm">
+              <div
+                key={item}
+                className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm leading-7 text-zinc-600 shadow-sm"
+              >
                 {item}
               </div>
             ))}
@@ -476,9 +633,13 @@ export default function SnapSpecUnifiedPage() {
                 </div>
                 <h3 className="text-xl font-semibold">{output.title}</h3>
               </div>
+
               <p className="mb-5 text-sm leading-7 text-zinc-600">{output.description}</p>
+
               <div className="rounded-2xl bg-zinc-50 p-4">
-                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">{output.sample}</pre>
+                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">
+                  {output.sample}
+                </pre>
               </div>
             </div>
           ))}
@@ -653,6 +814,7 @@ export default function SnapSpecUnifiedPage() {
                 >
                   Reset
                 </button>
+
                 <button
                   type="button"
                   onClick={handleGenerate}
@@ -677,20 +839,35 @@ export default function SnapSpecUnifiedPage() {
             )}
           </div>
 
-          <div className="rounded-[28px] border border-zinc-200 p-6 shadow-sm md:p-8">
-            <div className="mb-6 flex items-center gap-3">
-              <div className="rounded-2xl bg-zinc-100 p-2">
-                <Layers3 className="h-5 w-5" />
+          <div className="rounded-[28px] border border-zinc-200 p-6 shadow-sm md:p-8 lg:sticky lg:top-6 lg:self-start">
+            <div className="mb-6 flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl bg-zinc-100 p-2">
+                  <Layers3 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-semibold">Generated output</h2>
+                  <p className="text-sm text-zinc-500">Review each format in tabs.</p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-xl font-semibold">Generated output</h2>
-                <p className="text-sm text-zinc-500">Review each format in tabs.</p>
-              </div>
+
+              {hasOutput && (
+                <button
+                  type="button"
+                  onClick={downloadAllOutputs}
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Export all
+                </button>
+              )}
             </div>
 
-            <div className="mb-5 flex gap-2 rounded-2xl bg-zinc-100 p-1">
+            <div className="mb-3 flex gap-2 rounded-2xl bg-zinc-100 p-1">
               {tabOrder.map((tab) => {
                 const isActive = tab === activeTab;
+                const hasContent = Boolean(output[tab]);
+
                 return (
                   <button
                     key={tab}
@@ -701,11 +878,60 @@ export default function SnapSpecUnifiedPage() {
                       isActive ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
                     ].join(" ")}
                   >
-                    {tab}
+                    <span>{tab}</span>
+                    {loading && isActive ? (
+                      <LoaderCircle className="ml-2 inline h-3.5 w-3.5 animate-spin" />
+                    ) : hasContent ? (
+                      <span className="ml-2 inline-block h-2 w-2 rounded-full bg-zinc-900 align-middle" />
+                    ) : null}
                   </button>
                 );
               })}
             </div>
+
+            <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+              <div className="flex items-center gap-2 text-zinc-600">
+                {loading ? (
+                  <>
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                    <span>{statusText}</span>
+                  </>
+                ) : hasOutput ? (
+                  <span>{activeTab.charAt(0).toUpperCase() + activeTab.slice(1)} output ready</span>
+                ) : (
+                  <span>Generate output to enable actions.</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => copyTabContent(activeTab)}
+                  disabled={!output[activeTab]}
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Copy className="h-4 w-4" />
+                  {copiedTab === activeTab ? "Copied" : "Copy"}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => downloadTabContent(activeTab)}
+                  disabled={!output[activeTab]}
+                  className="inline-flex items-center gap-2 rounded-full border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  Export
+                </button>
+              </div>
+            </div>
+
+            {hasOutput && (
+              <div className="mb-5 flex items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
+                <span>Word count: {countWords(output[activeTab])}</span>
+                <span>Timestamp: {generatedAt[activeTab] || "Not generated"}</span>
+              </div>
+            )}
 
             <div className="min-h-[420px] rounded-[24px] border border-zinc-200 bg-zinc-50 p-5">
               {hasOutput ? (
