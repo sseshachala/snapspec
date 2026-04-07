@@ -953,6 +953,11 @@ export default function UnifiedPage() {
           </div>
         </section>
       </section>
+      <footer className="border-t border-zinc-200 bg-white">
+        <div className="mx-auto max-w-7xl px-6 py-8 text-center text-sm text-zinc-500 md:px-10 lg:px-12">
+          Envisioned, designed and developed with 💕 from Houston
+        </div>
+      </footer>
     </main>
   );
 }
