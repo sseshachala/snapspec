@@ -1,0 +1,732 @@
+"use client";
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  CheckCircle2,
+  FileText,
+  Layers3,
+  LayoutTemplate,
+  Sparkles,
+  Upload,
+  Users,
+  X
+} from "lucide-react";
+
+type OutputTab = "jira" | "notion" | "confluence";
+
+type UploadItem = {
+  id: string;
+  file: File;
+  previewUrl: string;
+};
+
+type GenerateResponse = {
+  jira?: string;
+  notion?: string;
+  confluence?: string;
+  error?: string;
+};
+
+const tabOrder: OutputTab[] = ["jira", "notion", "confluence"];
+
+const outputs = [
+  {
+    title: "Jira",
+    description: "Actionable user stories with acceptance criteria, ready for engineering delivery.",
+    sample: `Title:\nLogin with email\n\nAs a returning user\nI want to sign in with my email and password\nSo that I can access my workspace\n\nAcceptance Criteria:\n- Given a registered user When valid credentials are submitted Then the user is signed in\n- Given invalid credentials When sign in is attempted Then an error message is shown`
+  },
+  {
+    title: "Notion",
+    description: "Polished product requirements that PMs, designers, and stakeholders can align around.",
+    sample: `Overview\nThe flow supports authenticated sign-in for returning users.\n\nGoals\n- Reduce friction at entry\n- Make account access clear and fast\n\nUser flow\nThe user lands on sign in, enters credentials, submits, and is routed to the workspace.`
+  },
+  {
+    title: "Confluence",
+    description: "Structured functional specs with flows, requirements, and implementation clarity.",
+    sample: `Summary\nThis feature enables returning users to access the platform through a standard sign-in flow.\n\nScope\n- Email and password authentication\n- Validation states\n- Error handling\n\nAcceptance criteria\n- Successful sign in routes user to dashboard`
+  }
+];
+
+const valueProps = [
+  "Save hours on every spec",
+  "Reduce ambiguity across teams",
+  "Generate structured output instantly",
+  "Work from screenshots, not blank docs"
+];
+
+const audience = [
+  {
+    icon: LayoutTemplate,
+    title: "Product Managers",
+    description: "Turn ideas, mocks, and UI flows into structured requirements without starting from zero."
+  },
+  {
+    icon: Sparkles,
+    title: "Designers",
+    description: "Make sure design intent survives the handoff from screens to implementation."
+  },
+  {
+    icon: Users,
+    title: "Engineers",
+    description: "Get clearer stories, better acceptance criteria, and less ambiguity before build starts."
+  }
+];
+
+export default function SnapSpecUnifiedPage() {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const generatorRef = useRef<HTMLElement | null>(null);
+  const [items, setItems] = useState<UploadItem[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [statusText, setStatusText] = useState("Ready");
+  const [activeTab, setActiveTab] = useState<OutputTab>("jira");
+  const [output, setOutput] = useState<Record<OutputTab, string>>({
+    jira: "",
+    notion: "",
+    confluence: ""
+  });
+  const [error, setError] = useState("");
+
+  const hasOutput = useMemo(() => {
+    return Boolean(output.jira || output.notion || output.confluence);
+  }, [output]);
+
+  useEffect(() => {
+    return () => {
+      items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    };
+  }, [items]);
+
+  function scrollToGenerator() {
+    generatorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  function resetOutput() {
+    setOutput({ jira: "", notion: "", confluence: "" });
+    setError("");
+  }
+
+  function createUploadItems(files: File[]) {
+    return files
+      .filter((file) => file.type.startsWith("image/"))
+      .map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: URL.createObjectURL(file)
+      }));
+  }
+
+  function addFiles(files: File[]) {
+    const next = createUploadItems(files);
+
+    if (!next.length) {
+      setError("Please upload image files only.");
+      return;
+    }
+
+    setItems((prev) => [...prev, ...next]);
+    setError("");
+    resetOutput();
+  }
+
+  function onInputChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files || []);
+    addFiles(selected);
+    event.target.value = "";
+  }
+
+  function onDrop(event: React.DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setDragActive(false);
+    const dropped = Array.from(event.dataTransfer.files || []);
+    addFiles(dropped);
+  }
+
+  function removeItem(id: string) {
+    setItems((prev) => {
+      const found = prev.find((item) => item.id === id);
+      if (found) URL.revokeObjectURL(found.previewUrl);
+      return prev.filter((item) => item.id !== id);
+    });
+    resetOutput();
+  }
+
+  function moveItem(index: number, direction: "up" | "down") {
+    setItems((prev) => {
+      const next = [...prev];
+      const target = direction === "up" ? index - 1 : index + 1;
+      if (target < 0 || target >= next.length) return prev;
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    resetOutput();
+  }
+
+  async function handleGenerate() {
+    if (!items.length) {
+      setError("Upload one or more screenshots before generating.");
+      scrollToGenerator();
+      return;
+    }
+
+    resetOutput();
+    setLoading(true);
+    setStatusText("Uploading screenshots...");
+    setActiveTab("jira");
+    scrollToGenerator();
+
+    try {
+      const formData = new FormData();
+      items.forEach((item) => {
+        formData.append("files", item.file);
+      });
+
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        body: formData
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || "Generation failed.");
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+
+      if (response.body && !contentType.includes("application/json")) {
+        await handleStreamResponse(response);
+      } else {
+        const data = (await response.json()) as GenerateResponse;
+        if (data.error) throw new Error(data.error);
+        setOutput({
+          jira: data.jira || "",
+          notion: data.notion || "",
+          confluence: data.confluence || ""
+        });
+        setStatusText("Done");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+      setStatusText("Failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStreamResponse(response: Response) {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("Streaming is not available.");
+
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        try {
+          const event = JSON.parse(trimmed) as {
+            type?: string;
+            tab?: OutputTab;
+            content?: string;
+            jira?: string;
+            notion?: string;
+            confluence?: string;
+            message?: string;
+          };
+
+          if (event.type === "status" && event.message) {
+            setStatusText(event.message);
+            continue;
+          }
+
+          if (event.type === "error" && event.message) {
+            setError(event.message);
+            continue;
+          }
+
+          if (event.type === "chunk" && event.tab && typeof event.content === "string") {
+            setOutput((prev) => ({
+              ...prev,
+              [event.tab]: prev[event.tab] + event.content
+            }));
+            continue;
+          }
+
+          if (event.type === "result") {
+            setOutput({
+              jira: event.jira || "",
+              notion: event.notion || "",
+              confluence: event.confluence || ""
+            });
+            setStatusText("Done");
+          }
+        } catch {
+          // ignore malformed lines
+        }
+      }
+    }
+  }
+
+  return (
+    <main className="min-h-screen bg-white text-zinc-900">
+      <section className="mx-auto max-w-7xl px-6 py-8 md:px-10 lg:px-12">
+        <div className="flex items-center justify-between rounded-full border border-zinc-200 px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium">
+            <Sparkles className="h-4 w-4" />
+            SnapSpec
+          </div>
+          <div className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
+            <a href="#how-it-works" className="hover:text-zinc-900">How it works</a>
+            <a href="#outputs" className="hover:text-zinc-900">Outputs</a>
+            <a href="#generator" className="hover:text-zinc-900">Generator</a>
+          </div>
+          <button
+            onClick={scrollToGenerator}
+            className="rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800"
+          >
+            Generate Specs
+          </button>
+        </div>
+      </section>
+
+      <section className="mx-auto grid max-w-7xl gap-10 px-6 pb-10 pt-10 md:px-10 lg:grid-cols-[1.05fr_0.95fr] lg:px-12 lg:pt-16">
+        <div className="flex flex-col justify-center">
+          <div className="mb-6 inline-flex w-fit items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-1 text-sm text-zinc-600 shadow-sm">
+            <Sparkles className="h-4 w-4" />
+            AI-powered product specs
+          </div>
+
+          <h1 className="max-w-4xl text-5xl font-semibold tracking-tight text-zinc-950 md:text-7xl">
+            From screenshots to production-ready specs — instantly.
+          </h1>
+
+          <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-600 md:text-xl">
+            Turn UI screens into structured Jira tickets, Notion docs, and Confluence-ready specs — without writing a single line.
+          </p>
+
+          <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
+            Upload one or multiple screenshots. SnapSpec understands the flow, extracts intent, and generates implementation-ready output.
+          </p>
+
+          <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+            <button
+              onClick={scrollToGenerator}
+              className="inline-flex items-center justify-center gap-2 rounded-full bg-zinc-900 px-6 py-3 text-sm font-medium text-white transition hover:bg-zinc-800"
+            >
+              Generate Specs
+              <ArrowRight className="h-4 w-4" />
+            </button>
+            <a
+              href="#outputs"
+              className="rounded-full border border-zinc-300 px-6 py-3 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+            >
+              See Example
+            </a>
+          </div>
+
+          <div className="mt-10 grid gap-3 sm:grid-cols-2">
+            {valueProps.map((item) => (
+              <div key={item} className="flex items-center gap-3 rounded-2xl border border-zinc-200 px-4 py-3 text-sm text-zinc-700">
+                <CheckCircle2 className="h-4 w-4 shrink-0 text-zinc-900" />
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-[32px] border border-zinc-200 bg-zinc-50 p-4 shadow-sm md:p-6">
+          <div className="rounded-[28px] border border-zinc-200 bg-white p-4 shadow-sm">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <div className="text-sm font-medium text-zinc-900">Flow input</div>
+                <div className="text-sm text-zinc-500">Ordered screenshots</div>
+              </div>
+              <div className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-medium text-zinc-600">
+                3 screens
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {["Landing screen", "Sign in screen", "Dashboard state"].map((screen, index) => (
+                <div key={screen} className="flex items-center gap-4 rounded-2xl border border-zinc-200 p-3">
+                  <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-zinc-100 text-xs text-zinc-500">
+                    UI
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-zinc-900">Step {index + 1}</div>
+                    <div className="truncate text-sm text-zinc-500">{screen}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-[28px] border border-zinc-200 bg-white p-5 shadow-sm">
+            <div className="mb-4 flex items-center gap-2 text-sm font-medium text-zinc-900">
+              <Layers3 className="h-4 w-4" />
+              Generated output preview
+            </div>
+            <div className="mb-4 flex gap-2 rounded-2xl bg-zinc-100 p-1 text-sm">
+              <div className="rounded-xl bg-white px-4 py-2 font-medium text-zinc-900 shadow-sm">Jira</div>
+              <div className="rounded-xl px-4 py-2 text-zinc-500">Notion</div>
+              <div className="rounded-xl px-4 py-2 text-zinc-500">Confluence</div>
+            </div>
+            <div className="rounded-2xl bg-zinc-50 p-4">
+              <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">{outputs[0].sample}</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="border-y border-zinc-200 bg-zinc-50/60">
+        <div className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12">
+          <div className="max-w-3xl">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">The problem</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+              Specs shouldn’t start from scratch.
+            </h2>
+            <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
+              Screenshots in Slack. Vague tickets. Endless handoff loops. What should take minutes turns into hours of translation between product, design, and engineering.
+            </p>
+          </div>
+
+          <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {[
+              "Screenshots with no context",
+              "Back-and-forth to clarify requirements",
+              "Vague specs that slow delivery",
+              "Manual rewriting across tools"
+            ].map((item) => (
+              <div key={item} className="rounded-3xl border border-zinc-200 bg-white p-6 text-sm leading-7 text-zinc-600 shadow-sm">
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="how-it-works" className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12">
+        <div className="max-w-3xl">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">How it works</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+            Turn visuals into structured execution.
+          </h2>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
+            Upload your UI, arrange the flow, and generate documentation your team can actually use.
+          </p>
+        </div>
+
+        <div className="mt-12 grid gap-5 md:grid-cols-3">
+          {[
+            {
+              step: "01",
+              title: "Upload",
+              body: "Drop one or multiple screenshots and arrange them to reflect the intended user journey."
+            },
+            {
+              step: "02",
+              title: "Understand",
+              body: "SnapSpec analyzes the UI, transitions, states, and implied behavior across the sequence."
+            },
+            {
+              step: "03",
+              title: "Generate",
+              body: "Get structured output across Jira, Notion, and Confluence in one consistent flow."
+            }
+          ].map((item) => (
+            <div key={item.step} className="rounded-[28px] border border-zinc-200 p-8 shadow-sm">
+              <div className="text-sm font-medium text-zinc-500">{item.step}</div>
+              <h3 className="mt-5 text-2xl font-semibold text-zinc-900">{item.title}</h3>
+              <p className="mt-4 text-base leading-7 text-zinc-600">{item.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section id="outputs" className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12">
+        <div className="max-w-3xl">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">Outputs</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+            One input. Multiple outputs.
+          </h2>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
+            Generate consistent artifacts for product, design, and engineering without rewriting the same spec three times.
+          </p>
+        </div>
+
+        <div className="mt-12 grid gap-5 lg:grid-cols-3">
+          {outputs.map((output) => (
+            <div key={output.title} className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm">
+              <div className="mb-4 flex items-center gap-3">
+                <div className="rounded-2xl bg-zinc-100 p-2">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <h3 className="text-xl font-semibold">{output.title}</h3>
+              </div>
+              <p className="mb-5 text-sm leading-7 text-zinc-600">{output.description}</p>
+              <div className="rounded-2xl bg-zinc-50 p-4">
+                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">{output.sample}</pre>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section id="who-its-for" className="border-y border-zinc-200 bg-zinc-50/60">
+        <div className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12">
+          <div className="max-w-3xl">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">Who it’s for</p>
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+              Built for product, design, and engineering.
+            </h2>
+            <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
+              SnapSpec helps teams move from intent to execution with less ambiguity and faster alignment.
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-5 md:grid-cols-3">
+            {audience.map((item) => {
+              const Icon = item.icon;
+              return (
+                <div key={item.title} className="rounded-[28px] border border-zinc-200 bg-white p-7 shadow-sm">
+                  <div className="mb-5 inline-flex rounded-2xl bg-zinc-100 p-3">
+                    <Icon className="h-5 w-5" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-zinc-900">{item.title}</h3>
+                  <p className="mt-4 text-base leading-7 text-zinc-600">{item.description}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      <section
+        id="generator"
+        ref={generatorRef}
+        className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12"
+      >
+        <div className="mb-10 max-w-3xl">
+          <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">Generator</p>
+          <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+            Upload your flow and generate specs.
+          </h2>
+          <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
+            Add one or more screenshots, order them to match the journey, then generate Jira, Notion, and Confluence output in one pass.
+          </p>
+        </div>
+
+        <section className="grid gap-8 lg:grid-cols-[1.15fr_1fr]">
+          <div className="rounded-[28px] border border-zinc-200 p-6 shadow-sm md:p-8">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-2xl bg-zinc-100 p-2">
+                <Upload className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold">Upload screenshots</h2>
+                <p className="text-sm text-zinc-500">Add multiple images and order them before generation.</p>
+              </div>
+            </div>
+
+            <div
+              onDragEnter={(e) => {
+                e.preventDefault();
+                setDragActive(true);
+              }}
+              onDragOver={(e) => e.preventDefault()}
+              onDragLeave={(e) => {
+                e.preventDefault();
+                setDragActive(false);
+              }}
+              onDrop={onDrop}
+              onClick={() => inputRef.current?.click()}
+              className={[
+                "group flex min-h-[220px] cursor-pointer flex-col items-center justify-center rounded-[28px] border border-dashed px-6 text-center transition",
+                dragActive
+                  ? "border-zinc-900 bg-zinc-50"
+                  : "border-zinc-300 bg-zinc-50/60 hover:border-zinc-500 hover:bg-zinc-50"
+              ].join(" ")}
+            >
+              <input
+                ref={inputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={onInputChange}
+                className="hidden"
+              />
+
+              <div className="mb-4 rounded-2xl bg-white p-4 shadow-sm">
+                <Upload className="h-8 w-8" />
+              </div>
+              <h3 className="text-lg font-medium">Drop screenshots here</h3>
+              <p className="mt-2 max-w-md text-sm leading-6 text-zinc-500">
+                Upload wireframes, mocks, or product screens. Add multiple files to describe a full flow.
+              </p>
+              <div className="mt-5 rounded-full border border-zinc-300 px-4 py-2 text-sm text-zinc-700">
+                Browse files
+              </div>
+            </div>
+
+            <div className="mt-6 space-y-3">
+              {items.length > 0 ? (
+                items.map((item, index) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-4 rounded-2xl border border-zinc-200 bg-white p-3"
+                  >
+                    <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-zinc-200 bg-zinc-50">
+                      <img
+                        src={item.previewUrl}
+                        alt={item.file.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium text-zinc-900">Step {index + 1}</div>
+                      <div className="truncate text-sm text-zinc-500">{item.file.name}</div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => moveItem(index, "up")}
+                        disabled={index === 0}
+                        className="rounded-lg border border-zinc-200 p-2 text-zinc-600 disabled:opacity-40"
+                      >
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => moveItem(index, "down")}
+                        disabled={index === items.length - 1}
+                        className="rounded-lg border border-zinc-200 p-2 text-zinc-600 disabled:opacity-40"
+                      >
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(item.id)}
+                        className="rounded-lg border border-zinc-200 p-2 text-zinc-600"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-6 text-sm text-zinc-500">
+                  No screenshots added yet.
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="text-sm text-zinc-500">
+                {loading ? statusText : hasOutput ? "Generation complete." : "Ready when you are."}
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    items.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+                    setItems([]);
+                    resetOutput();
+                    setStatusText("Ready");
+                  }}
+                  className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
+                >
+                  Reset
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGenerate}
+                  disabled={loading}
+                  className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loading ? "Generating..." : "Generate specs"}
+                </button>
+              </div>
+            </div>
+
+            {loading && (
+              <div className="mt-5 overflow-hidden rounded-full bg-zinc-100">
+                <div className="h-2 w-full animate-pulse bg-zinc-900" />
+              </div>
+            )}
+
+            {error && (
+              <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-[28px] border border-zinc-200 p-6 shadow-sm md:p-8">
+            <div className="mb-6 flex items-center gap-3">
+              <div className="rounded-2xl bg-zinc-100 p-2">
+                <Layers3 className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold">Generated output</h2>
+                <p className="text-sm text-zinc-500">Review each format in tabs.</p>
+              </div>
+            </div>
+
+            <div className="mb-5 flex gap-2 rounded-2xl bg-zinc-100 p-1">
+              {tabOrder.map((tab) => {
+                const isActive = tab === activeTab;
+                return (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setActiveTab(tab)}
+                    className={[
+                      "flex-1 rounded-xl px-4 py-2 text-sm font-medium capitalize transition",
+                      isActive ? "bg-white text-zinc-900 shadow-sm" : "text-zinc-500 hover:text-zinc-900"
+                    ].join(" ")}
+                  >
+                    {tab}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="min-h-[420px] rounded-[24px] border border-zinc-200 bg-zinc-50 p-5">
+              {hasOutput ? (
+                <pre className="whitespace-pre-wrap break-words text-sm leading-6 text-zinc-700">
+                  {output[activeTab] || "No content yet for this tab."}
+                </pre>
+              ) : (
+                <div className="flex h-full min-h-[360px] flex-col items-center justify-center text-center">
+                  <div className="mb-4 rounded-2xl bg-white p-3 shadow-sm">
+                    <FileText className="h-6 w-6" />
+                  </div>
+                  <h3 className="text-lg font-medium">Output appears here</h3>
+                  <p className="mt-2 max-w-sm text-sm leading-6 text-zinc-500">
+                    Generate once and switch between Jira, Notion, and Confluence output.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  );
+}
