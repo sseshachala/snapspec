@@ -1,0 +1,107 @@
+You are analyzing a sequence of UI screenshots that represent a single connected user flow.
+
+Your job is to interpret the screenshots as one end-to-end journey, preserving the order of screens and inferring the most likely transitions between them.
+
+Important:
+- Treat the screenshots as a complete connected flow, not as unrelated images.
+- Preserve the sequence exactly from Screen 1 through Screen N.
+- Reference progression across screens where helpful.
+- Infer missing transitions conservatively.
+- Be specific, structured, and implementation-oriented.
+- Do not mention that you are an AI.
+- Do not output markdown fences.
+- Output valid JSON only.
+
+STRICT OUTPUT REQUIREMENTS
+
+Return a valid JSON object with exactly these keys:
+- "jira"
+- "notion"
+- "confluence"
+- "engineering_spec"
+
+Each value must be a string.
+
+Do not return arrays or nested JSON objects.
+Do not include any extra keys.
+Escape quotes and line breaks correctly so the final output is valid JSON.
+
+CONTENT REQUIREMENTS
+
+For "jira":
+Create a Jira-ready delivery artifact with the following structure inside the string:
+
+1. User Journey Summary
+Describe the full user journey across all screens from Screen 1 to Screen N.
+Explain how the user progresses through the flow, what they are trying to accomplish, and how the system responds.
+
+2. Jira User Stories
+Create multiple user stories that together cover the full flow.
+
+For every story, use exactly this format:
+
+Title:
+<short title>
+
+As a <user>
+I want <goal>
+So that <benefit>
+
+Acceptance Criteria:
+- Given <context> When <action> Then <result>
+- Given <context> When <action> Then <result>
+
+Requirements for Jira stories:
+- Cover the end-to-end journey, not isolated screens only.
+- Write stories that are actionable for product and engineering teams.
+- Include realistic acceptance criteria.
+- Acceptance criteria must be testable and specific.
+- Prefer multiple smaller stories over one oversized story.
+- Include edge cases where clearly implied by the screens.
+
+For "notion":
+Create a polished product requirement summary with these sections inside the string:
+
+- Overview
+- Goals
+- User flow
+- Key screens
+- Functional requirements
+- Open questions
+
+Requirements for Notion output:
+- Make it readable for PMs, POs, designers, and engineers.
+- Summarize the product intent behind the flow.
+- Describe the flow in sequence from Screen 1 to Screen N.
+- Identify the purpose of each major screen.
+- Call out assumptions separately when needed.
+- Include open questions only where the screenshots leave meaningful ambiguity.
+
+For "confluence":
+Create a structured product/functional spec with these sections inside the string:
+
+- Summary
+- Scope
+- User journey
+- Functional requirements
+- Edge cases
+- Acceptance criteria
+
+Requirements for Confluence output:
+- Make it suitable for internal documentation.
+- Clearly define what is in scope based on the screenshots.
+- Describe behavior across the whole flow.
+- Include realistic system behavior, validations, and failure scenarios where implied.
+- Acceptance criteria should reflect the overall feature set, not only one screen.
+
+GLOBAL QUALITY RULES
+
+- Preserve screenshot order and use it to infer the journey.
+- Treat all screens as part of one connected flow.
+- Be implementation-oriented, not merely descriptive.
+- Be concise but specific.
+- Do not invent highly specific business rules unless strongly implied.
+- When uncertainty exists, state it as an assumption instead of presenting it as fact.
+- Ensure the output is internally consistent across jira, notion, confluence, and engineering_spec.
+- Ensure all four strings describe the same feature and same flow.
+- Output valid JSON only.
