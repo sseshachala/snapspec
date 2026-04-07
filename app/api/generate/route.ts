@@ -32,7 +32,19 @@ export async function POST(req: Request) {
     }
 
     const prompt = buildPrompt(files.length);
-    const imageParts = await Promise.all(files.map(fileToImagePart));
+    type ImagePart = {
+      type: "image";
+      source: {
+        type: "base64";
+        media_type: string;
+        data: string;
+      };
+    };
+
+    const imageParts = await Promise.all(files.map(fileToImagePart)) as ImagePart[];
+    //const imageParts = await Promise.all(files.map(fileToImagePart));
+
+    
 
     if (!CLAUDE_API_URL || !CLAUDE_API_KEY || !CLAUDE_MODEL) {
       return NextResponse.json(
