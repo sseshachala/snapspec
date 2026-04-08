@@ -436,6 +436,7 @@ export default function UnifiedPage() {
           <div className="hidden items-center gap-6 text-sm text-zinc-600 md:flex">
             <a href="#how-it-works" className="hover:text-zinc-900">How it works</a>
             <a href="#outputs" className="hover:text-zinc-900">Outputs</a>
+            <a href="#why-snapspec" className="hover:text-zinc-900">SnapSpec vs AI</a>
             <a href="#generator" className="hover:text-zinc-900">Generator</a>
           </div>
 
@@ -643,6 +644,92 @@ export default function UnifiedPage() {
               </div>
             </div>
           ))}
+        </div>
+      </section>
+
+      <section
+        id="why-snapspec"
+        className="border-y border-zinc-200 bg-gradient-to-b from-white to-zinc-50/40"
+      >
+        <div className="mx-auto max-w-7xl px-6 py-20 md:px-10 lg:px-12">
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">
+              Why SnapSpec
+            </p>
+
+            <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
+              Why not just use ChatGPT or Claude?
+            </h2>
+
+            <p className="mt-6 text-base leading-8 text-zinc-600 md:text-lg">
+              You can. But general-purpose AI still leaves the manual work to you.
+            </p>
+
+            <p className="mt-4 text-base leading-8 text-zinc-600 md:text-lg">
+              Organizing screenshots. Explaining flow. Rewriting prompts. Cleaning
+              up output. Reformatting the same spec for different tools.
+            </p>
+
+            <p className="mt-4 text-base leading-8 text-zinc-600 md:text-lg">
+              SnapSpec removes that friction. It turns ordered UI screenshots into
+              structured Jira, Notion, and Confluence output your team can
+              actually use.
+            </p>
+          </div>
+
+          <div className="mt-12 grid gap-5 lg:grid-cols-2">
+            <div className="rounded-[28px] border border-zinc-200 bg-white p-6 shadow-sm md:p-8">
+              <div className="inline-flex rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-zinc-500">
+                General-purpose AI
+              </div>
+
+              <h3 className="mt-6 text-2xl font-semibold tracking-tight text-zinc-900">
+                Powerful, but still manual
+              </h3>
+
+              <p className="mt-4 text-sm leading-7 text-zinc-600 md:text-base">
+                Great at generating text. Less reliable when the job is turning UI
+                screenshots into structured, reusable deliverables.
+              </p>
+
+              <ul className="mt-8 space-y-4 text-sm leading-7 text-zinc-600 md:text-base">
+                <li>Manual screenshot handling</li>
+                <li>Prompt rewriting to get usable structure</li>
+                <li>Inconsistent output across runs</li>
+                <li>Separate formatting for each tool</li>
+                <li>More cleanup before handoff</li>
+              </ul>
+            </div>
+
+            <div className="rounded-[28px] border border-zinc-900 bg-zinc-900 p-6 text-white shadow-sm md:p-8">
+              <div className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-medium uppercase tracking-[0.18em] text-zinc-300">
+                SnapSpec
+              </div>
+
+              <h3 className="mt-6 text-2xl font-semibold tracking-tight">
+                Built for turning UI into execution
+              </h3>
+
+              <p className="mt-4 text-sm leading-7 text-zinc-300 md:text-base">
+                SnapSpec wraps AI in a purpose-built workflow so teams get
+                consistent, execution-ready output instead of one-off responses.
+              </p>
+
+              <ul className="mt-8 space-y-4 text-sm leading-7 text-zinc-300 md:text-base">
+                <li>Ordered screenshots preserve flow</li>
+                <li>Purpose-built prompting for UI specs</li>
+                <li>Structured output across formats</li>
+                <li>Less rewriting and less cleanup</li>
+                <li>Faster handoff to product and engineering</li>
+              </ul>
+            </div>
+          </div>
+
+          <div className="mx-auto mt-12 max-w-3xl text-center">
+            <p className="text-lg font-semibold tracking-tight text-zinc-900 md:text-2xl">
+              From screenshots to deliverables — without the prompt gymnastics.
+            </p>
+          </div>
         </div>
       </section>
 
@@ -953,6 +1040,7 @@ export default function UnifiedPage() {
           </div>
         </section>
       </section>
+
       <footer className="border-t border-zinc-200 bg-white">
         <div className="mx-auto max-w-7xl px-6 py-8 text-center text-sm text-zinc-500 md:px-10 lg:px-12">
           Envisioned, designed and developed with 💕 from Houston
