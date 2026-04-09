@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Turnstile from "@marsidev/react-turnstile";
 import {
   ArrowDown,
   ArrowRight,
@@ -125,6 +126,8 @@ export default function UnifiedPage() {
     notion: null,
     confluence: null
   });
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const [turnstileKey, setTurnstileKey] = useState(0);
 
   const hasOutput = useMemo(() => {
     return Boolean(output.jira || output.notion || output.confluence);
@@ -158,6 +161,11 @@ export default function UnifiedPage() {
     setError("");
     setCopiedTab(null);
     setGeneratedAt({ jira: null, notion: null, confluence: null });
+  }
+
+  function resetTurnstile() {
+    setTurnstileToken("");
+    setTurnstileKey((prev) => prev + 1);
   }
 
   async function copyTabContent(tab: OutputTab) {
@@ -292,6 +300,12 @@ export default function UnifiedPage() {
       return;
     }
 
+    if (!turnstileToken) {
+      setError("Please verify that you're human before generating.");
+      scrollToGenerator();
+      return;
+    }
+
     resetOutput();
     setLoading(true);
     setStatusText("Uploading screenshots...");
@@ -300,9 +314,12 @@ export default function UnifiedPage() {
 
     try {
       const formData = new FormData();
+
       items.forEach((item) => {
         formData.append("files", item.file);
       });
+
+      formData.append("turnstileToken", turnstileToken);
 
       const response = await fetch("/api/generate", {
         method: "POST",
@@ -343,6 +360,7 @@ export default function UnifiedPage() {
       setStatusText("Failed");
     } finally {
       setLoading(false);
+      resetTurnstile();
     }
   }
 
@@ -883,9 +901,44 @@ export default function UnifiedPage() {
               )}
             </div>
 
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+              <div className="mb-3 text-sm font-medium text-zinc-900">
+                Human verification
+              </div>
+              <p className="mb-4 text-sm leading-6 text-zinc-500">
+                This helps keep SnapSpec fast and abuse-free.
+              </p>
+
+              <Turnstile
+                key={turnstileKey}
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || ""}
+                onSuccess={(token) => {
+                  setTurnstileToken(token);
+                  setError("");
+                }}
+                onExpire={() => {
+                  setTurnstileToken("");
+                }}
+                onError={() => {
+                  setTurnstileToken("");
+                  setError("Human verification failed. Please try again.");
+                }}
+                options={{
+                  theme: "light",
+                  size: "normal"
+                }}
+              />
+            </div>
+
             <div className="mt-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div className="text-sm text-zinc-500">
-                {loading ? statusText : hasOutput ? "Generation complete." : "Ready when you are."}
+                {loading
+                  ? statusText
+                  : hasOutput
+                    ? "Generation complete."
+                    : turnstileToken
+                      ? "Verified and ready."
+                      : "Complete human verification to generate."}
               </div>
 
               <div className="flex gap-3">
@@ -896,6 +949,7 @@ export default function UnifiedPage() {
                     setItems([]);
                     resetOutput();
                     setStatusText("Ready");
+                    resetTurnstile();
                   }}
                   className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
                 >
@@ -905,7 +959,7 @@ export default function UnifiedPage() {
                 <button
                   type="button"
                   onClick={handleGenerate}
-                  disabled={loading}
+                  disabled={loading || !turnstileToken}
                   className="rounded-full bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? "Generating..." : "Generate specs"}

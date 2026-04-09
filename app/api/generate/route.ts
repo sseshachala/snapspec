@@ -1,12 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { Redis } from "@upstash/redis";
+import { Ratelimit } from "@upstash/ratelimit";
 
 export const runtime = "nodejs";
 
-
-
-type OutputTab = "jira" | "notion" | "confluence" ;
+type OutputTab = "jira" | "notion" | "confluence";
 
 type JsonResult = {
   jira?: string;
@@ -16,22 +16,155 @@ type JsonResult = {
 };
 
 const CLAUDE_API_URL = process.env.CLAUDE_API_URL || process.env.ANTHROPIC_API_URL || "";
-const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "";
+const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || process.env.CLOUD_AI_MODEL || "";
 const STREAM_MODE = (process.env.CLOUD_AI_STREAM || "false").toLowerCase() === "true";
 
-export async function POST(req: Request) {
+const redis = Redis.fromEnv();
+
+const hourlyLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(5, "1 h"),
+  analytics: true,
+  prefix: "snapspec:hourly"
+});
+
+const cooldownLimiter = new Ratelimit({
+  redis,
+  limiter: Ratelimit.slidingWindow(1, "45 s"),
+  analytics: true,
+  prefix: "snapspec:cooldown"
+});
+
+function getClientIp(request: NextRequest) {
+  const forwardedFor = request.headers.get("x-forwarded-for");
+  if (forwardedFor) {
+    return forwardedFor.split(",")[0]?.trim() || "unknown";
+  }
+
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp;
+
+  return "unknown";
+}
+
+async function verifyTurnstile(token: string, ip?: string) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+
+  if (!secret) {
+    throw new Error("Missing TURNSTILE_SECRET_KEY");
+  }
+
+  const body = new URLSearchParams();
+  body.append("secret", secret);
+  body.append("response", token);
+
+  if (ip && ip !== "unknown") {
+    body.append("remoteip", ip);
+  }
+
+  const response = await fetch(
+    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded"
+      },
+      body
+    }
+  );
+
+  if (!response.ok) {
+    return false;
+  }
+
+  const data = (await response.json()) as {
+    success?: boolean;
+  };
+
+  return Boolean(data.success);
+}
+
+function jsonError(message: string, status: number) {
+  return NextResponse.json({ error: message }, { status });
+}
+
+export async function POST(req: NextRequest) {
   try {
+    const ip = getClientIp(req);
     const formData = await req.formData();
+
+    const turnstileToken = formData.get("turnstileToken");
+    if (!turnstileToken || typeof turnstileToken !== "string") {
+      return jsonError("Missing human verification token.", 400);
+    }
+
     const files = formData
       .getAll("files")
       .filter((item): item is File => item instanceof File);
 
     if (!files.length) {
-      return NextResponse.json({ error: "No files uploaded." }, { status: 400 });
+      return jsonError("No files uploaded.", 400);
+    }
+
+    if (files.length > 5) {
+      return jsonError("You can upload up to 5 screenshots.", 400);
+    }
+
+    const totalBytes = files.reduce((sum, file) => sum + file.size, 0);
+    const maxBytes = 10 * 1024 * 1024;
+
+    if (totalBytes > maxBytes) {
+      return jsonError("Total upload size must be under 10 MB.", 400);
+    }
+
+    for (const file of files) {
+      if (!file.type.startsWith("image/")) {
+        return jsonError("Only image uploads are supported.", 400);
+      }
+
+      if (file.size === 0) {
+        return jsonError("One of the uploaded files is empty.", 400);
+      }
+    }
+
+    const isHuman = await verifyTurnstile(turnstileToken, ip);
+    if (!isHuman) {
+      return jsonError("Human verification failed.", 403);
+    }
+
+    const cooldownResult = await cooldownLimiter.limit(`generate:cooldown:${ip}`);
+    if (!cooldownResult.success) {
+      return NextResponse.json(
+        { error: "Please wait a bit before generating again." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(
+              Math.max(1, Math.ceil((cooldownResult.reset - Date.now()) / 1000))
+            )
+          }
+        }
+      );
+    }
+
+    const hourlyResult = await hourlyLimiter.limit(`generate:hourly:${ip}`);
+    if (!hourlyResult.success) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please try again later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(
+              Math.max(1, Math.ceil((hourlyResult.reset - Date.now()) / 1000))
+            )
+          }
+        }
+      );
     }
 
     const prompt = buildPrompt(files.length);
+
     type ImagePart = {
       type: "image";
       source: {
@@ -41,16 +174,13 @@ export async function POST(req: Request) {
       };
     };
 
-    const imageParts = await Promise.all(files.map(fileToImagePart)) as ImagePart[];
-    //const imageParts = await Promise.all(files.map(fileToImagePart));
-
-    
+    const imageParts = (await Promise.all(files.map(fileToImagePart))) as ImagePart[];
 
     if (!CLAUDE_API_URL || !CLAUDE_API_KEY || !CLAUDE_MODEL) {
       return NextResponse.json(
         {
           error:
-            "Missing Claude/Cloud AI environment variables. Set CLAUDE_API_URL (or CLOUD_AI_URL), CLAUDE_API_KEY, and CLAUDE_MODEL."
+            "Missing Claude/Cloud AI environment variables. Set CLAUDE_API_URL (or ANTHROPIC_API_URL), ANTHROPIC_API_KEY, and CLAUDE_MODEL."
         },
         { status: 500 }
       );
@@ -73,11 +203,8 @@ function readPromptTemplate(filename = "ui-spec.txt") {
   return fs.readFileSync(promptPath, "utf-8").trim();
 }
 
-
-
 function buildPrompt(fileCount: number) {
-  const customPrompt = "";
-  //readPromptTemplate("ui-spec.txt");
+  const customPrompt = readPromptTemplate("ui-spec.txt");
 
   return [
     `You are SnapSpec, an expert product requirements generator.`,
@@ -96,9 +223,9 @@ async function fileToImagePart(file: File) {
   const base64 = Buffer.from(bytes).toString("base64");
 
   return {
-    type: "image",
+    type: "image" as const,
     source: {
-      type: "base64",
+      type: "base64" as const,
       media_type: file.type || "image/png",
       data: base64
     }
@@ -180,7 +307,7 @@ function streamClaudeResponse({
         const response = await fetch(CLAUDE_API_URL, {
           method: "POST",
           headers: {
-            "Content-Type": "application/x-ndjson; charset=utf-8",
+            "Content-Type": "application/json",
             "x-api-key": CLAUDE_API_KEY,
             "anthropic-version": "2023-06-01"
           },
@@ -304,45 +431,6 @@ function safeParseOutput(raw: string): JsonResult {
       jira: cleaned || "No Jira output generated.",
       notion: "",
       confluence: ""
-    };
-  }
-}
-
-function safeParseOutput1(raw: string): JsonResult {
-  const cleaned = raw
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/```$/i, "")
-    .trim();
-
-  const tryParse = (text: string) => {
-    const parsed = JSON.parse(text);
-    return {
-      jira: typeof parsed.jira === "string" ? parsed.jira : "",
-      notion: typeof parsed.notion === "string" ? parsed.notion : "",
-      confluence: typeof parsed.confluence === "string" ? parsed.confluence : ""
-    };
-  };
-
-  try {
-    return tryParse(cleaned);
-  } catch {
-    const firstBrace = cleaned.indexOf("{");
-    const lastBrace = cleaned.lastIndexOf("}");
-
-    if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
-      const jsonSlice = cleaned.slice(firstBrace, lastBrace + 1);
-      try {
-        return tryParse(jsonSlice);
-      } catch {
-        // continue to final fallback
-      }
-    }
-
-    return {
-      jira: cleaned || "No Jira output generated.",
-      notion: "No Notion output generated.",
-      confluence: "No Confluence output generated."
     };
   }
 }
