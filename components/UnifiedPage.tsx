@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import Turnstile from "@marsidev/react-turnstile";
+import { Turnstile }  from "@marsidev/react-turnstile";
 import {
   ArrowDown,
   ArrowRight,
