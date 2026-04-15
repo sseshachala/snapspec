@@ -1058,6 +1058,9 @@ export default function UnifiedPage() {
                   {context.length}/1000
                 </div>
               </div>
+              <p className="mb-3 text-xs leading-5 text-zinc-500">
+                Best results usually need 1-3 short sentences about the product, user, or goal.
+              </p>
               <textarea
                 value={context}
                 onChange={(e) => setContext(e.target.value.slice(0, 1000))}

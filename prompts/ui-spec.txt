@@ -1,31 +1,25 @@
-Analyze the uploaded screenshots as a single ordered user flow (Screen 1 → Screen N). Infer transitions between screens and treat the sequence as one connected experience.
+Treat the screenshots as one connected flow in upload order.
 
-OUTPUT FORMAT
-Return valid JSON with exactly these keys: "jira", "notion", "confluence"
-Each value must be a plain string. No arrays, no nested objects, no markdown fences. Escape all quotes and newlines correctly.
+Requirements:
+- Be specific and implementation-oriented.
+- Use plain language.
+- Do not use marketing language, adjectives, or filler.
+- Base the output on the screenshots first, then use context to clarify product, user, domain, and goals.
+- Do not invent business rules unless strongly implied.
+- State uncertainty as assumptions, not facts.
+- Keep jira, notion, and confluence consistent with the same feature and flow.
+- Prefer short, direct sentences.
 
-JIRA
-Write multiple user stories covering the full flow end-to-end. Use this exact format for every story:
-
+jira:
+- Write multiple actionable user stories for the full flow.
+- Use this format for every story:
 Title: <short title>
 As a <user> I want <goal> So that <benefit>
 Acceptance Criteria:
 - Given <context> When <action> Then <result>
 
-Stories must be actionable, testable, and cover edge cases where implied. Prefer smaller focused stories over one large story.
+notion:
+- Write a concise PRD with sections: Overview | Goals | User flow | Key screens | Functional requirements | Open questions
 
-NOTION
-Product requirement doc with these sections: Overview | Goals | User flow | Key screens | Functional requirements | Open questions
-Readable for PMs, designers, and engineers. Describe the flow in sequence. State assumptions clearly. Include open questions only where screenshots leave real ambiguity.
-
-CONFLUENCE
-Functional spec with these sections: Summary | Scope | User journey | Functional requirements | Edge cases | Acceptance criteria
-Suitable for internal documentation. Define scope from screenshots only. Include system behavior, validations, and failure scenarios where implied.
-
-RULES
-- Preserve screenshot order. All screens are one connected flow.
-- Be specific and implementation-oriented, not descriptive.
-- Do not invent business rules unless strongly implied by the screens.
-- State uncertainties as assumptions, not facts.
-- All three outputs must describe the same feature and flow.
-- Output valid JSON only.
+confluence:
+- Write a concise functional spec with sections: Summary | Scope | User journey | Functional requirements | Edge cases | Acceptance criteria
