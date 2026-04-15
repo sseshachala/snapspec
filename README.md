@@ -1,86 +1,53 @@
+# SnapSpec
 
-# 🚀 SnapSpec
+From screenshots to production-ready specs.
 
-**From screenshot to production-ready specs — instantly.**
+SnapSpec is a Next.js app that turns one or more ordered UI screenshots into three parallel outputs:
 
-SnapSpec transforms UI screenshots into structured, implementation-ready outputs for:
+- Jira user stories with acceptance criteria
+- Notion-style product requirements
+- Confluence-style functional specs
 
-* 🧾 Jira (user stories + acceptance criteria)
-* 🧠 Notion (product requirements)
-* 📘 Confluence (technical specs)
+The current app also supports optional user-provided context, Cloudflare Turnstile verification, rate limiting, downloadable outputs, and email delivery through Resend.
 
-Upload one or multiple screenshots, arrange them as a flow, and generate structured documentation powered by AI.
+## Features
 
----
+- Multi-image upload with ordered flow handling
+- Optional context input to ground the generated spec
+- Three output tabs: `jira`, `notion`, `confluence`
+- NDJSON status/chunk/result streaming mode
+- Output copy/download actions
+- Email delivery for generated results
+- Prompt customization through [`prompts/ui-spec.txt`](/Users/ctp1126/New_projj/snapspec/prompts/ui-spec.txt:1)
 
-## ✨ Features
+## Tech Stack
 
-### 📸 Multi-Screenshot Upload
+- Next.js App Router
+- React + TypeScript
+- Tailwind CSS
+- Cloudflare Turnstile
+- Upstash Redis + `@upstash/ratelimit`
+- Resend
 
-* Drag & drop multiple images
-* Reorder screenshots to define user flow
-* Visual preview with step ordering
+## Project Structure
 
-### 🧠 AI-Powered Spec Generation
-
-* Interprets UI as a complete user journey
-* Generates:
-
-  * Jira-ready stories
-  * Notion PRDs
-  * Confluence specs
-
-### ⚡ Streaming UX
-
-* Real-time generation feedback
-* Progressive output rendering
-
-### 🧩 Tabbed Output
-
-* Switch between:
-
-  * Jira
-  * Notion
-  * Confluence
-
-### 🛠️ Custom Prompt System
-
-* Prompts live in `/prompts/ui-spec.txt`
-* Easily customizable without changing code
-
----
-
-## 📁 Project Structure
-
-```bash
-/app
-  /api
-    /generate
-      route.ts        # AI integration + prompt handling
+```text
+app/
+  api/
+    email/route.ts       # Email delivery endpoint
+    generate/route.ts    # Screenshot analysis + AI generation
+  globals.css
   layout.tsx
-  page.tsx
+  page.tsx               # Renders UnifiedPage
 
-/components
-  Landing.tsx         # Main UI (upload + tabs + streaming)
+components/
+  UnifiedPage.tsx        # Main landing page + generator UI
 
-/lib
-  formatters.ts       # Optional formatting utilities
-
-/prompts
-  ui-spec.txt         # Customizable AI prompt
-
-/public
-  ...
-
-tailwind.config.js
-postcss.config.js
-tsconfig.json
-package.json
+prompts/
+  ui-spec.txt            # Prompt template used by /api/generate
 ```
 
----
-
-## ⚙️ Setup
+## Setup
 
 ### 1. Install dependencies
 
@@ -88,78 +55,81 @@ package.json
 npm install
 ```
 
----
-
 ### 2. Configure environment variables
 
-Create `.env.local`:
+Create `.env.local` with the variables your deployment uses.
 
 ```bash
-CLAUDE_API_URL=
-CLAUDE_API_KEY=
-CLAUDE_MODEL=
+# AI provider
+CLAUDE_API_URL=               # or ANTHROPIC_API_URL
+ANTHROPIC_API_KEY=
+CLAUDE_MODEL=                 # or CLOUD_AI_MODEL
+CLOUD_AI_STREAM=false
 
-# Enable streaming (optional)
-CLOUD_AI_STREAM=true
+# Cloudflare Turnstile
+NEXT_PUBLIC_TURNSTILE_SITE_KEY=
+TURNSTILE_SECRET_KEY=
+
+# Upstash Redis / ratelimiting
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
+
+# Email delivery
+RESEND_API_KEY=
+RESEND_FROM_EMAIL=
 ```
 
----
+Notes:
 
-### 3. Run the app
+- The generate route reads `CLAUDE_API_URL` or `ANTHROPIC_API_URL`.
+- The API key currently comes from `ANTHROPIC_API_KEY`.
+- The model comes from `CLAUDE_MODEL` or `CLOUD_AI_MODEL`.
+- If Upstash Redis env vars are present, both API routes enable rate limiting.
+- If Upstash Redis env vars are missing or invalid, the routes still run and log a warning, but rate limiting is disabled.
+
+### 3. Run locally
 
 ```bash
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-```
-http://localhost:3000
-```
+## How It Works
 
----
+1. The user uploads up to 5 screenshots and orders them as a flow.
+2. The client optionally resizes images, attaches context, and sends a `turnstileToken`.
+3. `/api/generate` verifies Turnstile, enforces Redis-backed rate limits, loads [`prompts/ui-spec.txt`](/Users/ctp1126/New_projj/snapspec/prompts/ui-spec.txt:1), and sends the ordered screenshots to the configured AI endpoint.
+4. The response is parsed into `jira`, `notion`, and `confluence`.
+5. The UI renders the outputs and can copy, download, or email them.
 
-## 🧠 Prompt Customization
+## API Overview
 
-Edit:
+### `POST /api/generate`
 
-```bash
-/prompts/ui-spec.txt
-```
+Request:
 
-This controls:
+- Content type: `multipart/form-data`
+- Fields:
+- `files`: one or more images
+- `turnstileToken`: required
+- `context`: optional plain text, capped at 1000 chars server-side
 
-* Output structure
-* Writing style
-* Level of detail
+Server-side validation:
 
-### Example (simplified)
+- 1 to 5 image files
+- Total upload size under 10 MB
+- Non-empty image MIME types only
+- Cloudflare Turnstile verification
+- Cooldown limit: 1 request / 45 seconds per IP
+- Hourly limit: 5 requests / hour per IP
 
-```txt
-Analyze the UI screenshots as a complete user flow.
+Response:
 
-Return JSON with:
-- jira
-- notion
-- confluence
+- JSON when streaming is disabled
+- NDJSON when `CLOUD_AI_STREAM=true`
 
-Each must be a string.
-```
-
-👉 No code changes required — just edit the file.
-
----
-
-## 🔌 API Overview
-
-### POST `/api/generate`
-
-#### Request
-
-* `multipart/form-data`
-* key: `files` (multiple images supported)
-
-#### Response (JSON)
+JSON shape:
 
 ```json
 {
@@ -169,39 +139,38 @@ Each must be a string.
 }
 ```
 
-#### Streaming (NDJSON)
-
-Events include:
+NDJSON events:
 
 ```json
-{ "type": "status", "message": "Analyzing..." }
+{ "type": "status", "message": "Analyzing UI flow..." }
 { "type": "chunk", "tab": "jira", "content": "..." }
 { "type": "result", "jira": "...", "notion": "...", "confluence": "..." }
 ```
 
----
+If the AI response cannot be parsed into valid `jira` / `notion` / `confluence` JSON, the route returns an error instead of falling back to partial raw output.
 
-## 🧪 How It Works
+### `POST /api/email`
 
-1. Upload screenshots (ordered)
-2. Backend:
+Request body:
 
-   * Encodes images
-   * Builds prompt from `/prompts/ui-spec.txt`
-   * Sends to Claude / Cloud AI
-3. Response is:
+```json
+{
+  "email": "user@example.com",
+  "jira": "...",
+  "notion": "...",
+  "confluence": "..."
+}
+```
 
-   * Parsed into structured output
-   * Streamed or returned as JSON
-4. UI displays output per tab
+Behavior:
 
----
+- Validates email format
+- Applies Redis-backed rate limiting
+- Sends HTML and text email through Resend
 
-## ⚠️ Important Notes
+## Prompt Contract
 
-### Prompt Contract Must Match UI
-
-Your prompt **must return exactly**:
+[`prompts/ui-spec.txt`](/Users/ctp1126/New_projj/snapspec/prompts/ui-spec.txt:1) must instruct the model to return valid JSON with exactly these keys:
 
 ```json
 {
@@ -211,58 +180,18 @@ Your prompt **must return exactly**:
 }
 ```
 
-If extra keys (e.g. `engineering_spec`) are included, parsing may fail and UI may display raw JSON.
+Each value must be a string. Do not return arrays, nested objects, or markdown fences.
 
----
+## Current Behavior Notes
 
-### Streaming Behavior
+- Streaming is simulated at the app level after the model response is received; it is not token-by-token model streaming.
+- `components/UnifiedPage.tsx` is the active UI rendered by `app/page.tsx`.
 
-Current streaming:
+## Verification
 
-* Simulates progressive output after full AI response
-* Not token-by-token streaming
+- `npx tsc --noEmit` passes in the current workspace.
+- `npm run build` was not verified in this sandbox because Next.js/Turbopack attempted a blocked port bind during CSS processing.
 
----
-
-## 🔮 Roadmap
-
-* [ ] True token streaming from AI
-* [ ] Export to Jira / Notion APIs
-* [ ] Save history / sessions
-* [ ] Auth & team collaboration
-* [ ] Prompt templates (switchable)
-* [ ] Engineering spec tab (optional)
-
----
-
-## 🧠 Design Philosophy
-
-SnapSpec is not just a generator — it’s a **thinking tool** for:
-
-* Product Managers
-* Designers
-* Engineers
-
-It bridges the gap between:
-
-> idea → structure → execution
-
----
-
-## 💡 Contributing
-
-PRs welcome. Keep changes:
-
-* simple
-* modular
-* UX-first
-
----
-
-## 📄 License
+## License
 
 MIT
-
----
-
-This is shaping into a very strong product 👍

@@ -6,8 +6,6 @@ import { Ratelimit } from "@upstash/ratelimit";
 
 export const runtime = "nodejs";
 
-type OutputTab = "jira" | "notion" | "confluence";
-
 type JsonResult = {
   jira?: string;
   notion?: string;
@@ -16,25 +14,52 @@ type JsonResult = {
 };
 
 const CLAUDE_API_URL = process.env.CLAUDE_API_URL || process.env.ANTHROPIC_API_URL || "";
-const CLAUDE_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
 const CLAUDE_MODEL = process.env.CLAUDE_MODEL || process.env.CLOUD_AI_MODEL || "";
 const STREAM_MODE = (process.env.CLOUD_AI_STREAM || "false").toLowerCase() === "true";
 
-const redis = Redis.fromEnv();
+type GenerateLimiters = {
+  cooldownLimiter: Ratelimit;
+  hourlyLimiter: Ratelimit;
+};
 
-const hourlyLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(5, "1 h"),
-  analytics: true,
-  prefix: "snapspec:hourly"
-});
+let generateLimiters: GenerateLimiters | null | undefined;
 
-const cooldownLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(1, "45 s"),
-  analytics: true,
-  prefix: "snapspec:cooldown"
-});
+function getGenerateLimiters() {
+  if (generateLimiters !== undefined) {
+    return generateLimiters;
+  }
+
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    console.warn("Upstash Redis env vars are missing. Generation rate limiting is disabled.");
+    generateLimiters = null;
+    return generateLimiters;
+  }
+
+  try {
+    const redis = Redis.fromEnv();
+
+    generateLimiters = {
+      hourlyLimiter: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(5, "1 h"),
+        analytics: true,
+        prefix: "snapspec:hourly"
+      }),
+      cooldownLimiter: new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(1, "45 s"),
+        analytics: true,
+        prefix: "snapspec:cooldown"
+      })
+    };
+  } catch (error) {
+    console.error("Failed to initialize generation rate limiting. Requests will not be limited.", error);
+    generateLimiters = null;
+  }
+
+  return generateLimiters;
+}
 
 function getClientIp(request: NextRequest) {
   const forwardedFor = request.headers.get("x-forwarded-for");
@@ -63,16 +88,13 @@ async function verifyTurnstile(token: string, ip?: string) {
     body.append("remoteip", ip);
   }
 
-  const response = await fetch(
-    "https://challenges.cloudflare.com/turnstile/v0/siteverify",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/x-www-form-urlencoded"
-      },
-      body
-    }
-  );
+  const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded"
+    },
+    body
+  });
 
   if (!response.ok) {
     return false;
@@ -87,6 +109,19 @@ async function verifyTurnstile(token: string, ip?: string) {
 
 function jsonError(message: string, status: number) {
   return NextResponse.json({ error: message }, { status });
+}
+
+function toUserFacingGenerateError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unexpected error.";
+
+  if (
+    message === "AI response did not match the expected JSON schema." ||
+    message === "AI response was not valid JSON with jira, notion, and confluence fields."
+  ) {
+    return "SnapSpec couldn't structure this into Jira, Notion, and Confluence output. Try clearer screenshots, fewer screens, or more specific optional context.";
+  }
+
+  return message;
 }
 
 export async function POST(req: NextRequest) {
@@ -133,34 +168,38 @@ export async function POST(req: NextRequest) {
       return jsonError("Human verification failed.", 403);
     }
 
-    const cooldownResult = await cooldownLimiter.limit(`generate:cooldown:${ip}`);
-    if (!cooldownResult.success) {
-      return NextResponse.json(
-        { error: "Please wait a bit before generating again." },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(
-              Math.max(1, Math.ceil((cooldownResult.reset - Date.now()) / 1000))
-            )
-          }
-        }
-      );
-    }
+    const limiters = getGenerateLimiters();
 
-    const hourlyResult = await hourlyLimiter.limit(`generate:hourly:${ip}`);
-    if (!hourlyResult.success) {
-      return NextResponse.json(
-        { error: "Rate limit exceeded. Please try again later." },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(
-              Math.max(1, Math.ceil((hourlyResult.reset - Date.now()) / 1000))
-            )
+    if (limiters) {
+      const cooldownResult = await limiters.cooldownLimiter.limit(`generate:cooldown:${ip}`);
+      if (!cooldownResult.success) {
+        return NextResponse.json(
+          { error: "Please wait a bit before generating again." },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(
+                Math.max(1, Math.ceil((cooldownResult.reset - Date.now()) / 1000))
+              )
+            }
           }
-        }
-      );
+        );
+      }
+
+      const hourlyResult = await limiters.hourlyLimiter.limit(`generate:hourly:${ip}`);
+      if (!hourlyResult.success) {
+        return NextResponse.json(
+          { error: "Rate limit exceeded. Please try again later." },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(
+                Math.max(1, Math.ceil((hourlyResult.reset - Date.now()) / 1000))
+              )
+            }
+          }
+        );
+      }
     }
 
     const context = ((formData.get("context") as string | null) || "").trim().slice(0, 1000);
@@ -178,7 +217,7 @@ export async function POST(req: NextRequest) {
 
     const imageParts = (await Promise.all(files.map(fileToImagePart))) as ImagePart[];
 
-    if (!CLAUDE_API_URL || !CLAUDE_API_KEY || !CLAUDE_MODEL) {
+    if (!CLAUDE_API_URL || !ANTHROPIC_API_KEY || !CLAUDE_MODEL) {
       return NextResponse.json(
         {
           error:
@@ -195,8 +234,7 @@ export async function POST(req: NextRequest) {
     const result = await fetchClaudeJson({ prompt, imageParts });
     return NextResponse.json(result);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unexpected error.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({ error: toUserFacingGenerateError(error) }, { status: 500 });
   }
 }
 
@@ -256,7 +294,7 @@ async function fetchClaudeJson({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": CLAUDE_API_KEY,
+      "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01"
     },
     body: JSON.stringify({
@@ -318,7 +356,7 @@ function streamClaudeResponse({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "x-api-key": CLAUDE_API_KEY,
+            "x-api-key": ANTHROPIC_API_KEY,
             "anthropic-version": "2023-06-01"
           },
           body: JSON.stringify({
@@ -366,9 +404,8 @@ function streamClaudeResponse({
           confluence: parsed.confluence || ""
         });
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unexpected error.";
         send({ type: "status", message: "Failed" });
-        send({ type: "error", message });
+        send({ type: "error", message: toUserFacingGenerateError(error) });
       } finally {
         controller.close();
       }
@@ -416,11 +453,21 @@ function safeParseOutput(raw: string): JsonResult {
     .replace(/```$/i, "")
     .trim();
 
-  const normalize = (parsed: any): JsonResult => ({
-    jira: typeof parsed?.jira === "string" ? parsed.jira : "",
-    notion: typeof parsed?.notion === "string" ? parsed.notion : "",
-    confluence: typeof parsed?.confluence === "string" ? parsed.confluence : ""
-  });
+  const normalize = (parsed: any): JsonResult => {
+    if (
+      typeof parsed?.jira !== "string" ||
+      typeof parsed?.notion !== "string" ||
+      typeof parsed?.confluence !== "string"
+    ) {
+      throw new Error("AI response did not match the expected JSON schema.");
+    }
+
+    return {
+      jira: parsed.jira,
+      notion: parsed.notion,
+      confluence: parsed.confluence
+    };
+  };
 
   try {
     return normalize(JSON.parse(cleaned));
@@ -437,10 +484,6 @@ function safeParseOutput(raw: string): JsonResult {
       }
     }
 
-    return {
-      jira: cleaned || "No Jira output generated.",
-      notion: "",
-      confluence: ""
-    };
+    throw new Error("AI response was not valid JSON with jira, notion, and confluence fields.");
   }
 }

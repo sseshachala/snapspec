@@ -8,14 +8,35 @@ export const runtime = "nodejs";
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "SnapSpec <noreply@snapspec.ai>";
 
-const redis = Redis.fromEnv();
+let emailLimiter: Ratelimit | null | undefined;
 
-const emailLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(5, "1 h"),
-  analytics: true,
-  prefix: "snapspec:email"
-});
+function getEmailLimiter() {
+  if (emailLimiter !== undefined) {
+    return emailLimiter;
+  }
+
+  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
+    console.warn("Upstash Redis env vars are missing. Email rate limiting is disabled.");
+    emailLimiter = null;
+    return emailLimiter;
+  }
+
+  try {
+    const redis = Redis.fromEnv();
+
+    emailLimiter = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(5, "1 h"),
+      analytics: true,
+      prefix: "snapspec:email"
+    });
+  } catch (error) {
+    console.error("Failed to initialize email rate limiting. Requests will not be limited.", error);
+    emailLimiter = null;
+  }
+
+  return emailLimiter;
+}
 
 function getClientIp(request: NextRequest) {
   const forwardedFor = request.headers.get("x-forwarded-for");
@@ -124,21 +145,33 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "A valid email address is required." }, { status: 400 });
     }
 
-    if (typeof jira !== "string" && typeof notion !== "string" && typeof confluence !== "string") {
+    if (
+      typeof jira !== "string" ||
+      typeof notion !== "string" ||
+      typeof confluence !== "string"
+    ) {
+      return NextResponse.json({ error: "Invalid spec content." }, { status: 400 });
+    }
+
+    if (!jira.trim() && !notion.trim() && !confluence.trim()) {
       return NextResponse.json({ error: "No spec content to send." }, { status: 400 });
     }
 
-    const rateLimitResult = await emailLimiter.limit(`email:${ip}`);
-    if (!rateLimitResult.success) {
-      return NextResponse.json(
-        { error: "Too many email requests. Please wait before sending again." },
-        {
-          status: 429,
-          headers: {
-            "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000)))
+    const limiter = getEmailLimiter();
+
+    if (limiter) {
+      const rateLimitResult = await limiter.limit(`email:${ip}`);
+      if (!rateLimitResult.success) {
+        return NextResponse.json(
+          { error: "Too many email requests. Please wait before sending again." },
+          {
+            status: 429,
+            headers: {
+              "Retry-After": String(Math.max(1, Math.ceil((rateLimitResult.reset - Date.now()) / 1000)))
+            }
           }
-        }
-      );
+        );
+      }
     }
 
     if (!process.env.RESEND_API_KEY) {

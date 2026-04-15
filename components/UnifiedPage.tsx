@@ -643,19 +643,19 @@ export default function UnifiedPage() {
           <div className="max-w-3xl">
             <p className="text-sm font-medium uppercase tracking-[0.2em] text-zinc-500">The problem</p>
             <h2 className="mt-4 text-3xl font-semibold tracking-tight md:text-5xl">
-              Specs shouldn’t start from scratch.
+              Specs need more than screenshots alone.
             </h2>
             <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
-              Screenshots in Slack. Vague tickets. Endless handoff loops. What should take minutes turns into hours of translation between product, design, and engineering.
+              Screenshots in Slack, vague tickets, and missing business context force teams into hours of follow-up. SnapSpec lets you pair ordered UI screens with optional context so the output is more precise, customizable, and useful from the first pass.
             </p>
           </div>
 
           <div className="mt-10 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {[
               "Screenshots with no context",
+              "Business goals lost between teams",
               "Back-and-forth to clarify requirements",
-              "Vague specs that slow delivery",
-              "Manual rewriting across tools"
+              "Vague specs that slow delivery"
             ].map((item) => (
               <div
                 key={item}
@@ -675,7 +675,7 @@ export default function UnifiedPage() {
             Turn visuals into structured execution.
           </h2>
           <p className="mt-5 max-w-2xl text-base leading-8 text-zinc-600 md:text-lg">
-            Upload your UI, arrange the flow, and generate documentation your team can actually use.
+            Upload your UI, add optional product context, and generate documentation that is more tailored to your workflow, users, and business goals.
           </p>
         </div>
 
@@ -688,13 +688,13 @@ export default function UnifiedPage() {
             },
             {
               step: "02",
-              title: "Understand",
-              body: "SnapSpec analyzes the UI, transitions, states, and implied behavior across the sequence."
+              title: "Add context",
+              body: "Optionally describe the product, user, business goal, or domain so the generated specs are more precise and customizable."
             },
             {
               step: "03",
               title: "Generate",
-              body: "Get structured output across Jira, Notion, and Confluence in one consistent flow."
+              body: "SnapSpec combines screens plus context to generate structured Jira, Notion, and Confluence output in one consistent flow."
             }
           ].map((item) => (
             <div key={item.step} className="rounded-[28px] border border-zinc-200 p-8 shadow-sm">
