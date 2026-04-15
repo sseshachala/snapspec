@@ -303,6 +303,30 @@ export default function UnifiedPage() {
     resetOutput();
   }
 
+  async function resizeImageFile(file: File, maxPx = 1000): Promise<File> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const { naturalWidth: w, naturalHeight: h } = img;
+        if (w <= maxPx && h <= maxPx) { resolve(file); return; }
+        const scale = Math.min(maxPx / w, maxPx / h);
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.round(w * scale);
+        canvas.height = Math.round(h * scale);
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(
+          (blob) => resolve(blob ? new File([blob], file.name, { type: "image/jpeg" }) : file),
+          "image/jpeg",
+          0.85
+        );
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); resolve(file); };
+      img.src = objectUrl;
+    });
+  }
+
   async function handleGenerate() {
     if (!items.length) {
       setError("Upload one or more screenshots before generating.");
@@ -325,9 +349,8 @@ export default function UnifiedPage() {
     try {
       const formData = new FormData();
 
-      items.forEach((item) => {
-        formData.append("files", item.file);
-      });
+      const resized = await Promise.all(items.map((item) => resizeImageFile(item.file)));
+      resized.forEach((file) => formData.append("files", file));
 
       formData.append("turnstileToken", turnstileToken);
 
