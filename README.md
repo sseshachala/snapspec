@@ -17,7 +17,7 @@ The current app also supports optional user-provided context, Cloudflare Turnsti
 - Three output tabs: `jira`, `notion`, `confluence`
 - NDJSON status/chunk/result streaming mode
 - Output copy/download actions
-- Email delivery for generated results
+- Email delivery for generated results with screenshots inline and attached in upload order
 - Prompt customization through [`prompts/ui-spec.txt`](/Users/ctp1126/New_projj/snapspec/prompts/ui-spec.txt:1)
 
 ## Tech Stack
@@ -102,6 +102,7 @@ Open `http://localhost:3000`.
 3. `/api/generate` verifies Turnstile, enforces Redis-backed rate limits, loads [`prompts/ui-spec.txt`](/Users/ctp1126/New_projj/snapspec/prompts/ui-spec.txt:1), and sends the ordered screenshots to the configured AI endpoint.
 4. The response is parsed into `jira`, `notion`, and `confluence`.
 5. The UI renders the outputs and can copy, download, or email them.
+6. Email sharing includes the generated outputs plus the uploaded screenshots in the same order.
 
 ## API Overview
 
@@ -158,7 +159,14 @@ Request body:
   "email": "user@example.com",
   "jira": "...",
   "notion": "...",
-  "confluence": "..."
+  "confluence": "...",
+  "screenshots": [
+    {
+      "filename": "screen-1.png",
+      "contentType": "image/png",
+      "content": "<base64>"
+    }
+  ]
 }
 ```
 
@@ -167,6 +175,7 @@ Behavior:
 - Validates email format
 - Applies Redis-backed rate limiting
 - Sends HTML and text email through Resend
+- Includes uploaded screenshots inline and as attachments in upload order
 
 ## Prompt Contract
 

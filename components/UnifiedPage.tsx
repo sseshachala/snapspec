@@ -35,6 +35,12 @@ type GenerateResponse = {
   error?: string;
 };
 
+type EmailScreenshotPayload = {
+  filename: string;
+  contentType: string;
+  content: string;
+};
+
 const tabOrder: OutputTab[] = ["jira", "notion", "confluence"];
 
 const outputs = [
@@ -85,7 +91,7 @@ const valueProps = [
   "Save hours on every spec",
   "Reduce ambiguity across teams",
   "Generate structured output instantly",
-  "Work from screenshots, not blank docs"
+  "Email specs with screenshots in order"
 ];
 
 const audience = [
@@ -327,6 +333,43 @@ export default function UnifiedPage() {
     });
   }
 
+  async function optimizeImageForEmail(file: File, maxPx = 1400, quality = 0.72): Promise<File> {
+    return new Promise((resolve) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+
+        const { naturalWidth: width, naturalHeight: height } = img;
+        const scale = Math.min(1, maxPx / Math.max(width, height));
+        const canvas = document.createElement("canvas");
+        canvas.width = Math.max(1, Math.round(width * scale));
+        canvas.height = Math.max(1, Math.round(height * scale));
+        canvas.getContext("2d")?.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+        const baseName = file.name.replace(/\.[^.]+$/, "");
+        canvas.toBlob(
+          (blob) =>
+            resolve(
+              blob
+                ? new File([blob], `${baseName || "screenshot"}.jpg`, { type: "image/jpeg" })
+                : file
+            ),
+          "image/jpeg",
+          quality
+        );
+      };
+
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        resolve(file);
+      };
+
+      img.src = objectUrl;
+    });
+  }
+
   async function handleGenerate() {
     if (!items.length) {
       setError("Upload one or more screenshots before generating.");
@@ -491,6 +534,18 @@ export default function UnifiedPage() {
     setEmailSending(true);
 
     try {
+      const screenshots: EmailScreenshotPayload[] = await Promise.all(
+        items.map(async (item) => {
+          const optimizedFile = await optimizeImageForEmail(item.file);
+
+          return {
+            filename: optimizedFile.name,
+            contentType: optimizedFile.type || "image/jpeg",
+            content: await fileToBase64(optimizedFile)
+          };
+        })
+      );
+
       const response = await fetch("/api/email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -498,7 +553,8 @@ export default function UnifiedPage() {
           email: emailInput.trim(),
           jira: output.jira,
           notion: output.notion,
-          confluence: output.confluence
+          confluence: output.confluence,
+          screenshots
         })
       });
 
@@ -514,6 +570,24 @@ export default function UnifiedPage() {
     } finally {
       setEmailSending(false);
     }
+  }
+
+  async function fileToBase64(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== "string") {
+          reject(new Error("Unable to read screenshot for email."));
+          return;
+        }
+
+        const [, base64 = ""] = result.split(",", 2);
+        resolve(base64);
+      };
+      reader.onerror = () => reject(new Error("Unable to read screenshot for email."));
+      reader.readAsDataURL(file);
+    });
   }
 
   return (
@@ -557,7 +631,7 @@ export default function UnifiedPage() {
           </p>
 
           <p className="mt-4 max-w-2xl text-base leading-7 text-zinc-500">
-            Upload one or multiple screenshots. SnapSpec understands the flow, extracts intent, and generates implementation-ready output.
+            Upload one or multiple screenshots, add optional context, and turn the flow into implementation-ready output you can export, copy, or email with the original screens in order.
           </p>
 
           <div className="mt-10 flex flex-col gap-3 sm:flex-row">
@@ -765,7 +839,8 @@ export default function UnifiedPage() {
             <p className="mt-4 text-base leading-8 text-zinc-600 md:text-lg">
               SnapSpec removes that friction. It turns ordered UI screenshots into
               structured Jira, Notion, and Confluence output your team can
-              actually use.
+              actually use, then makes it easy to share that output with the
+              supporting screenshots intact.
             </p>
           </div>
 
@@ -809,10 +884,11 @@ export default function UnifiedPage() {
 
               <ul className="mt-8 space-y-4 text-sm leading-7 text-zinc-300 md:text-base">
                 <li>Ordered screenshots preserve flow</li>
+                <li>Optional context improves precision</li>
                 <li>Purpose-built prompting for UI specs</li>
                 <li>Structured output across formats</li>
+                <li>Email sharing with screenshots in order</li>
                 <li>Less rewriting and less cleanup</li>
-                <li>Faster handoff to product and engineering</li>
               </ul>
             </div>
           </div>
@@ -1201,6 +1277,9 @@ export default function UnifiedPage() {
                     {emailSending ? "Sending..." : emailSent ? "Sent" : "Send"}
                   </button>
                 </div>
+                <p className="text-xs text-zinc-500">
+                  The email includes Jira, Notion, Confluence, plus the uploaded screenshots inline and attached in flow order.
+                </p>
                 {emailSent && <p className="text-xs text-emerald-600">Sent! Check your inbox.</p>}
                 {emailError && <p className="text-xs text-red-600">{emailError}</p>}
               </div>

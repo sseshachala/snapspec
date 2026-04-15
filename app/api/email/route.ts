@@ -8,6 +8,12 @@ export const runtime = "nodejs";
 const resend = new Resend(process.env.RESEND_API_KEY || "");
 const FROM_EMAIL = process.env.RESEND_FROM_EMAIL || "SnapSpec <noreply@snapspec.ai>";
 
+type EmailScreenshotPayload = {
+  content: string;
+  contentType: string;
+  filename: string;
+};
+
 let emailLimiter: Ratelimit | null | undefined;
 
 function getEmailLimiter() {
@@ -48,7 +54,12 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
-function buildEmailHtml(jira: string, notion: string, confluence: string) {
+function buildEmailHtml(
+  jira: string,
+  notion: string,
+  confluence: string,
+  screenshots: Array<EmailScreenshotPayload & { contentId: string }>
+) {
   const escape = (str: string) =>
     str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
@@ -59,6 +70,31 @@ function buildEmailHtml(jira: string, notion: string, confluence: string) {
       </h2>
       <pre style="font-family:ui-monospace,monospace;font-size:13px;line-height:1.7;color:#3f3f46;white-space:pre-wrap;word-break:break-word;margin:0;background:#fafafa;border:1px solid #e4e4e7;border-radius:12px;padding:16px;">${escape(content || "No content generated.")}</pre>
     </div>`;
+
+  const screenshotsSection = screenshots.length
+    ? `
+    <div style="margin-bottom:32px;">
+      <h2 style="font-size:16px;font-weight:600;color:#18181b;margin:0 0 12px 0;padding-bottom:8px;border-bottom:1px solid #e4e4e7;">
+        Uploaded Screenshots
+      </h2>
+      <p style="font-size:13px;line-height:1.7;color:#71717a;margin:0 0 16px 0;">
+        Included in the same order they were uploaded to SnapSpec.
+      </p>
+      ${screenshots
+        .map(
+          (screenshot, index) => `
+            <div style="margin-bottom:20px;">
+              <div style="font-size:13px;font-weight:600;color:#18181b;margin:0 0 10px 0;">
+                Step ${index + 1}: ${escape(screenshot.filename)}
+              </div>
+              <div style="border:1px solid #e4e4e7;border-radius:16px;padding:12px;background:#fafafa;">
+                <img src="cid:${escape(screenshot.contentId)}" alt="${escape(screenshot.filename)}" style="display:block;width:100%;height:auto;border-radius:12px;" />
+              </div>
+            </div>`
+        )
+        .join("")}
+    </div>`
+    : "";
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -90,6 +126,7 @@ function buildEmailHtml(jira: string, notion: string, confluence: string) {
 
           <tr>
             <td>
+              ${screenshotsSection}
               ${section("Jira", jira)}
               ${section("Notion", notion)}
               ${section("Confluence", confluence)}
@@ -112,11 +149,14 @@ function buildEmailHtml(jira: string, notion: string, confluence: string) {
 </html>`;
 }
 
-function buildEmailText(jira: string, notion: string, confluence: string) {
+function buildEmailText(jira: string, notion: string, confluence: string, screenshots: EmailScreenshotPayload[]) {
   const divider = "\n" + "-".repeat(50) + "\n\n";
   return [
     "YOUR SPECS FROM SNAPSPEC",
     "snapspec.ai\n",
+    screenshots.length
+      ? `SCREENSHOTS (${screenshots.length})\n${screenshots.map((s, index) => `Step ${index + 1}: ${s.filename}`).join("\n")}\n${divider}`
+      : "",
     "JIRA\n",
     jira || "No content generated.",
     divider,
@@ -137,9 +177,10 @@ export async function POST(req: NextRequest) {
       jira?: unknown;
       notion?: unknown;
       confluence?: unknown;
+      screenshots?: unknown;
     };
 
-    const { email, jira = "", notion = "", confluence = "" } = body;
+    const { email, jira = "", notion = "", confluence = "", screenshots = [] } = body;
 
     if (!email || typeof email !== "string" || !isValidEmail(email)) {
       return NextResponse.json({ error: "A valid email address is required." }, { status: 400 });
@@ -156,6 +197,34 @@ export async function POST(req: NextRequest) {
     if (!jira.trim() && !notion.trim() && !confluence.trim()) {
       return NextResponse.json({ error: "No spec content to send." }, { status: 400 });
     }
+
+    if (!Array.isArray(screenshots)) {
+      return NextResponse.json({ error: "Invalid screenshots payload." }, { status: 400 });
+    }
+
+    const normalizedScreenshots = screenshots.map((screenshot, index) => {
+      if (
+        !screenshot ||
+        typeof screenshot !== "object" ||
+        typeof screenshot.content !== "string" ||
+        typeof screenshot.contentType !== "string" ||
+        typeof screenshot.filename !== "string"
+      ) {
+        throw new Error(`Invalid screenshot payload at index ${index}.`);
+      }
+
+      const normalized = {
+        content: screenshot.content.trim(),
+        contentType: screenshot.contentType.trim(),
+        filename: screenshot.filename.trim()
+      };
+
+      if (!normalized.content || !normalized.filename || !normalized.contentType.startsWith("image/")) {
+        throw new Error(`Invalid screenshot payload at index ${index}.`);
+      }
+
+      return normalized;
+    });
 
     const limiter = getEmailLimiter();
 
@@ -178,12 +247,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Email service is not configured." }, { status: 500 });
     }
 
+    const emailScreenshots = normalizedScreenshots.map((screenshot, index) => ({
+      ...screenshot,
+      contentId: `snapspec-step-${index + 1}`
+    }));
+
     const { error } = await resend.emails.send({
       from: FROM_EMAIL,
       to: email,
       subject: "Your SnapSpec — Jira, Notion & Confluence specs",
-      html: buildEmailHtml(String(jira), String(notion), String(confluence)),
-      text: buildEmailText(String(jira), String(notion), String(confluence))
+      html: buildEmailHtml(String(jira), String(notion), String(confluence), emailScreenshots),
+      text: buildEmailText(String(jira), String(notion), String(confluence), normalizedScreenshots),
+      attachments: emailScreenshots.map((screenshot, index) => ({
+        content: screenshot.content,
+        contentId: screenshot.contentId,
+        contentType: screenshot.contentType,
+        filename: `step-${index + 1}-${screenshot.filename}`
+      }))
     });
 
     if (error) {
@@ -191,7 +271,11 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Unexpected error sending email.";
+    if (message.startsWith("Invalid screenshot payload")) {
+      return NextResponse.json({ error: "Invalid screenshots payload." }, { status: 400 });
+    }
     return NextResponse.json({ error: "Unexpected error sending email." }, { status: 500 });
   }
 }
