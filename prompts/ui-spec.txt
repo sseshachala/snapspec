@@ -18,7 +18,6 @@ Return a valid JSON object with exactly these keys:
 - "jira"
 - "notion"
 - "confluence"
-- "engineering_spec"
 
 Each value must be a string.
 
@@ -102,6 +101,6 @@ GLOBAL QUALITY RULES
 - Be concise but specific.
 - Do not invent highly specific business rules unless strongly implied.
 - When uncertainty exists, state it as an assumption instead of presenting it as fact.
-- Ensure the output is internally consistent across jira, notion, confluence, and engineering_spec.
-- Ensure all four strings describe the same feature and same flow.
+- Ensure the output is internally consistent across jira, notion, and confluence.
+- Ensure all three strings describe the same feature and same flow.
 - Output valid JSON only.

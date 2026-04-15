@@ -261,7 +261,7 @@ async function fetchClaudeJson({
     },
     body: JSON.stringify({
       model: CLAUDE_MODEL,
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages: [
         {
           role: "user",
@@ -323,7 +323,7 @@ function streamClaudeResponse({
           },
           body: JSON.stringify({
             model: CLAUDE_MODEL,
-            max_tokens: 4000,
+            max_tokens: 8000,
             messages: [
               {
                 role: "user",

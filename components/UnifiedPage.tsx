@@ -13,6 +13,7 @@ import {
   Layers3,
   LayoutTemplate,
   LoaderCircle,
+  Mail,
   Sparkles,
   Upload,
   Users,
@@ -133,6 +134,7 @@ export default function UnifiedPage() {
   const [emailSending, setEmailSending] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
   const [emailError, setEmailError] = useState("");
+  const [showEmailInput, setShowEmailInput] = useState(false);
 
   const hasOutput = useMemo(() => {
     return Boolean(output.jira || output.notion || output.confluence);
@@ -168,6 +170,7 @@ export default function UnifiedPage() {
     setGeneratedAt({ jira: null, notion: null, confluence: null });
     setEmailSent(false);
     setEmailError("");
+    setShowEmailInput(false);
   }
 
   function resetTurnstile() {
@@ -1095,7 +1098,7 @@ export default function UnifiedPage() {
               })}
             </div>
 
-            <div className="mb-5 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
+            <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm">
               <div className="flex items-center gap-2 text-zinc-600">
                 {loading ? (
                   <>
@@ -1129,8 +1132,56 @@ export default function UnifiedPage() {
                   <Download className="h-4 w-4" />
                   Export
                 </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEmailInput((prev) => !prev);
+                    setEmailSent(false);
+                    setEmailError("");
+                  }}
+                  disabled={!hasOutput}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-medium transition disabled:cursor-not-allowed disabled:opacity-50",
+                    showEmailInput
+                      ? "border-zinc-900 bg-zinc-900 text-white"
+                      : "border-zinc-300 text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50"
+                  ].join(" ")}
+                >
+                  <Mail className="h-4 w-4" />
+                  Email
+                </button>
               </div>
             </div>
+
+            {showEmailInput && (
+              <div className="mb-3 flex flex-col gap-2 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3">
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={emailInput}
+                    onChange={(e) => {
+                      setEmailInput(e.target.value);
+                      setEmailSent(false);
+                      setEmailError("");
+                    }}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleEmailSend(); }}
+                    placeholder="you@company.com"
+                    className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleEmailSend}
+                    disabled={emailSending || !emailInput.trim()}
+                    className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {emailSending ? "Sending..." : emailSent ? "Sent" : "Send"}
+                  </button>
+                </div>
+                {emailSent && <p className="text-xs text-emerald-600">Sent! Check your inbox.</p>}
+                {emailError && <p className="text-xs text-red-600">{emailError}</p>}
+              </div>
+            )}
 
             {hasOutput && (
               <div className="mb-5 flex items-center justify-between rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-xs text-zinc-600">
@@ -1157,39 +1208,6 @@ export default function UnifiedPage() {
               )}
             </div>
 
-            {hasOutput && (
-              <div className="mt-5 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
-                <div className="mb-3 text-sm font-medium text-zinc-900">Email these specs</div>
-                <div className="flex gap-2">
-                  <input
-                    type="email"
-                    value={emailInput}
-                    onChange={(e) => {
-                      setEmailInput(e.target.value);
-                      setEmailSent(false);
-                      setEmailError("");
-                    }}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleEmailSend(); }}
-                    placeholder="you@company.com"
-                    className="flex-1 rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleEmailSend}
-                    disabled={emailSending || !emailInput.trim()}
-                    className="rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {emailSending ? "Sending..." : emailSent ? "Sent" : "Send"}
-                  </button>
-                </div>
-                {emailSent && (
-                  <p className="mt-2 text-sm text-emerald-600">Sent! Check your inbox.</p>
-                )}
-                {emailError && (
-                  <p className="mt-2 text-sm text-red-600">{emailError}</p>
-                )}
-              </div>
-            )}
           </div>
         </section>
       </section>
