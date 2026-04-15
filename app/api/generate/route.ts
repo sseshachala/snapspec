@@ -163,7 +163,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const prompt = buildPrompt(files.length);
+    const context = ((formData.get("context") as string | null) || "").trim().slice(0, 1000);
+
+    const prompt = buildPrompt(files.length, context);
 
     type ImagePart = {
       type: "image";
@@ -203,19 +205,27 @@ function readPromptTemplate(filename = "ui-spec.txt") {
   return fs.readFileSync(promptPath, "utf-8").trim();
 }
 
-function buildPrompt(fileCount: number) {
+function buildPrompt(fileCount: number, context?: string) {
   const customPrompt = readPromptTemplate("ui-spec.txt");
 
-  return [
+  const parts = [
     `You are SnapSpec, an expert product requirements generator.`,
     `The user uploaded ${fileCount} screenshot(s). Treat the uploaded files as an ordered sequence.`,
     `Preserve the order exactly as uploaded because it may represent a user flow or multi-step experience.`,
     `Analyze the UI, flows, visible components, form states, navigation, and any intent implied by the sequence.`,
     `Return ONLY valid JSON with these exact keys: jira, notion, confluence.`,
-    `Each value must be a string.`,
-    customPrompt,
-    `Do not wrap JSON in markdown fences.`
-  ].join("\n\n");
+    `Each value must be a string.`
+  ];
+
+  if (context) {
+    parts.push(
+      `USER-PROVIDED CONTEXT:\n"""\n${context}\n"""\n\nUse this context to ground all generated output. Reflect the product name, user personas, business goals, and any domain details from this context in the Jira stories, Notion PRD, and Confluence spec. Do not contradict it.`
+    );
+  }
+
+  parts.push(customPrompt, `Do not wrap JSON in markdown fences.`);
+
+  return parts.join("\n\n");
 }
 
 async function fileToImagePart(file: File) {

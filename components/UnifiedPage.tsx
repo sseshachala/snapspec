@@ -128,6 +128,7 @@ export default function UnifiedPage() {
   });
   const [turnstileToken, setTurnstileToken] = useState("");
   const [turnstileKey, setTurnstileKey] = useState(0);
+  const [context, setContext] = useState("");
 
   const hasOutput = useMemo(() => {
     return Boolean(output.jira || output.notion || output.confluence);
@@ -320,6 +321,10 @@ export default function UnifiedPage() {
       });
 
       formData.append("turnstileToken", turnstileToken);
+
+      if (context.trim()) {
+        formData.append("context", context.trim());
+      }
 
       const response = await fetch("/api/generate", {
         method: "POST",
@@ -902,6 +907,22 @@ export default function UnifiedPage() {
             </div>
 
             <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
+              <div className="mb-2 flex items-center justify-between">
+                <div className="text-sm font-medium text-zinc-900">Add context <span className="font-normal text-zinc-400">(optional)</span></div>
+                <div className={`text-xs ${context.length > 900 ? "text-amber-600" : "text-zinc-400"}`}>
+                  {context.length}/1000
+                </div>
+              </div>
+              <textarea
+                value={context}
+                onChange={(e) => setContext(e.target.value.slice(0, 1000))}
+                placeholder="e.g. This is a checkout flow for a B2B SaaS app. Users are procurement managers. The goal is to reduce drop-off at the payment step."
+                rows={3}
+                className="w-full resize-none rounded-2xl border border-zinc-200 bg-white px-4 py-3 text-sm leading-6 text-zinc-800 placeholder-zinc-400 outline-none focus:border-zinc-400 focus:ring-0"
+              />
+            </div>
+
+            <div className="mt-6 rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-4">
               <div className="mb-3 text-sm font-medium text-zinc-900">
                 Human verification
               </div>
@@ -949,6 +970,7 @@ export default function UnifiedPage() {
                     setItems([]);
                     resetOutput();
                     setStatusText("Ready");
+                    setContext("");
                     resetTurnstile();
                   }}
                   className="rounded-full border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50"
